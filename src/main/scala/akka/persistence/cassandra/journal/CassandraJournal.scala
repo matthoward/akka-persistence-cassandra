@@ -12,8 +12,9 @@ import akka.persistence.cassandra._
 import akka.serialization.SerializationExtension
 
 import com.datastax.driver.core._
-import com.datastax.driver.core.utils.Bytes
 import akka.actor.ActorLogging
+
+import org.apache.cassandra.utils.ByteBufferUtil
 
 class CassandraJournal extends AsyncWriteJournal with CassandraRecovery with CassandraStatements with CassandraPlugin with ActorLogging {
   val config = new CassandraJournalConfig(context.system.settings.config.getConfig("cassandra-journal"))
@@ -23,7 +24,7 @@ class CassandraJournal extends AsyncWriteJournal with CassandraRecovery with Cas
 
   import config._
 
-  val cluster = clusterBuilder.build
+  val cluster = clusterBuilder.build()
   val session = cluster.connect()
   
   createKeyspace(session)
@@ -39,13 +40,13 @@ class CassandraJournal extends AsyncWriteJournal with CassandraRecovery with Cas
       val pnr : JLong = partitionNr(m.sequenceNr)
       val processorId = m.processorId
       val sequenceNr : JLong = m.sequenceNr
-      val byteBuffer = Bytes.toHexString(persistentToByteBuffer(m))
+      val byteBuffer = ByteBufferUtil.bytesToHex(persistentToByteBuffer(m))
       if (partitionNew(m.sequenceNr)) {
         var psHeader = s"INSERT INTO ${tableName} (processor_id, partition_nr, sequence_nr, marker, message) VALUES ('${processorId}', ${pnr}, 0, 'H', 0x00)"
         preparedWriteBatch.append("\n")
         preparedWriteBatch.append(psHeader)
       }
-      var psMessage = s"INSERT INTO ${tableName} (processor_id, partition_nr, sequence_nr, marker, message) VALUES ('${processorId}', ${pnr}, ${sequenceNr}, 'A', ${byteBuffer})"
+      var psMessage = s"INSERT INTO ${tableName} (processor_id, partition_nr, sequence_nr, marker, message) VALUES ('${processorId}', ${pnr}, ${sequenceNr}, 'A', '${byteBuffer}')"
       preparedWriteBatch.append("\n")
       preparedWriteBatch.append(psMessage)
     }
@@ -85,7 +86,7 @@ class CassandraJournal extends AsyncWriteJournal with CassandraRecovery with Cas
         preparedDeletePermanentBatch.append("\n")
         preparedDeletePermanentBatch.append(psDelPermanent)
       } else {
-        var psDelLogical = s"INSERT INTO ${tableName} (processor_id, partition_nr, sequence_nr, marker, message) VALUES ('${processorId}', ${partitionNR}, ${sequenceNr}, 'B',0x00)"
+        var psDelLogical = s"INSERT INTO ${tableName} (processor_id, partition_nr, sequence_nr, marker, message) VALUES ('${processorId}', ${partitionNR}, ${sequenceNr}, 'B', 0x00)"
         preparedDeleteLogicalBatch.append("\n")
         preparedDeleteLogicalBatch.append(psDelLogical)
       }
@@ -124,14 +125,14 @@ class CassandraJournal extends AsyncWriteJournal with CassandraRecovery with Cas
     ByteBuffer.wrap(serialization.serialize(p).get)
 
   def persistentFromByteBuffer(b: ByteBuffer): PersistentRepr = {
-    serialization.deserialize(Bytes.getArray(b), classOf[PersistentRepr]).get
+    serialization.deserialize(ByteBufferUtil.getArray(b), classOf[PersistentRepr]).get
   }
 
   private def confirmMarker(channelId: String) =
     s"C-${channelId}"
 
   override def postStop(): Unit = {
-    session.close()
-    cluster.close()
+    session.shutdown()
+    cluster.shutdown()
   }
 }

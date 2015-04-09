@@ -12,7 +12,8 @@ import akka.persistence.cassandra._
 import akka.persistence.serialization.Snapshot
 import akka.serialization.SerializationExtension
 import com.datastax.driver.core._
-import com.datastax.driver.core.utils.Bytes
+
+import org.apache.cassandra.utils.ByteBufferUtil
 
 /**
  * Optimized and fully async version of [[akka.persistence.snapshot.SnapshotStore]].
@@ -67,7 +68,7 @@ class CassandraSnapshotStore extends CassandraSnapshotStoreEndpoint with Cassand
   import context.dispatcher
   import config._
 
-  val cluster = clusterBuilder.build
+  val cluster = clusterBuilder.build()
   val session = cluster.connect()
   
   createKeyspace(session)
@@ -138,7 +139,7 @@ class CassandraSnapshotStore extends CassandraSnapshotStoreEndpoint with Cassand
     ByteBuffer.wrap(serialization.findSerializerFor(snapshot).toBinary(snapshot))
 
   private def deserialize(bytes: ByteBuffer): Snapshot =
-    serialization.deserialize(Bytes.getArray(bytes), classOf[Snapshot]).get
+    serialization.deserialize(ByteBufferUtil.getArray(bytes), classOf[Snapshot]).get
 
   private def metadata(processorId: String, criteria: SnapshotSelectionCriteria): Iterator[SnapshotMetadata] =
     new RowIterator(processorId, criteria.maxSequenceNr).map { row =>
@@ -176,7 +177,7 @@ class CassandraSnapshotStore extends CassandraSnapshotStoreEndpoint with Cassand
   }
 
   override def postStop(): Unit = {
-    session.close()
-    cluster.close()
+    session.shutdown()
+    cluster.shutdown()
   }
 }

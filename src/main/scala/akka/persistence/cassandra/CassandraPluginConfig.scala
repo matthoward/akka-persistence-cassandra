@@ -21,7 +21,7 @@ class CassandraPluginConfig(config: Config) {
   val readConsistency: ConsistencyLevel = ConsistencyLevel.valueOf(config.getString("read-consistency"))
   val writeConsistency: ConsistencyLevel = ConsistencyLevel.valueOf(config.getString("write-consistency"))
 
-  val clusterBuilder: Cluster.Builder = Cluster.builder
+  val clusterBuilder: Cluster.Builder = Cluster.builder()
     .addContactPoints(config.getStringList("contact-points").asScala: _*)
     .withPort(config.getInt("port"))
 
