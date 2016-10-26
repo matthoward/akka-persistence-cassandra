@@ -1,8 +1,8 @@
-organization := "com.github.krasserm"
+organization := "com.wmg.dsp.tango"
 
 name := "akka-persistence-cassandra-12"
 
-version := "0.4"
+version := "0.5-SNAPSHOT"
 
 scalaVersion := "2.10.0"
 
@@ -28,4 +28,5 @@ libraryDependencies ++= Seq(
   "org.apache.cassandra" % "cassandra-all"  % "1.2.13"
 )
 
+publishMavenStyle := true
 

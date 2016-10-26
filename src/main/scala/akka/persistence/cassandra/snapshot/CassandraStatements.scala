@@ -11,6 +11,8 @@ trait CassandraStatements {
         snapshot blob,
         PRIMARY KEY (processor_id, sequence_nr))
         WITH CLUSTERING ORDER BY (sequence_nr DESC)
+          AND gc_grace_seconds =${config.gc_grace_seconds}
+          AND compaction = {'class' : '${config.compaction_strategy}'}
     """
 
   def writeSnapshot = s"""

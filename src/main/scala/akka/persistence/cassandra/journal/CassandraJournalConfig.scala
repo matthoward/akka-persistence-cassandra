@@ -8,4 +8,6 @@ class CassandraJournalConfig(config: Config) extends CassandraPluginConfig(confi
   val replayDispatcherId: String = config.getString("replay-dispatcher")
   val maxPartitionSize: Int = config.getInt("max-partition-size") // TODO: make persistent
   val maxResultSize: Int = config.getInt("max-result-size")
+  val gc_grace_seconds: Long = config.getLong("gc-grace-seconds")
+  val compaction_strategy: String = config.getString("compaction_strategy")
 }
