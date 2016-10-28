@@ -39,8 +39,8 @@ class CassandraSnapshotStoreSpec extends SnapshotStoreSpec with CassandraLifecyc
   }
 
   override def afterAll(): Unit = {
-    session.close()
-    cluster.close()
+    session.shutdown()
+    cluster.shutdown()
     super.afterAll()
   }
 

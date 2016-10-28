@@ -19,7 +19,7 @@ credentials += Credentials("deploymentRepo", "http://nexus.dspdev.wmg.com:8080/n
 publishTo := Some("deploymentRepo" at "http://nexus.dspdev.wmg.com:8080/nexus/content/repositories/releases/")
 
 libraryDependencies ++= Seq(
-  "com.datastax.cassandra"  % "cassandra-driver-core"             % "1.0.1",
+  "com.datastax.cassandra"  % "cassandra-driver-core"             % "1.0.3",
   "org.apache.commons"      % "commons-io"                        % "1.3.2",
   "com.typesafe.akka"      %% "akka-persistence-experimental"     % "2.3.6",
   "com.typesafe.akka"      %% "akka-persistence-tck-experimental" % "2.3.6"   % "test",
