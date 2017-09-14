@@ -24,6 +24,12 @@ trait CassandraStatements {
         sequence_nr = 0
     """
 
+  def insertMessages = s"""
+      INSERT INTO ${tableName}
+        (processor_id, partition_nr, sequence_nr, marker, message)
+        VALUES (?, ?, ?, 'A', ?)
+    """
+
   def selectMessages = s"""
       SELECT * FROM ${tableName} WHERE
         processor_id = ? AND

@@ -1,10 +1,8 @@
 package akka.persistence.cassandra.snapshot
 
-import java.lang.{ Long => JLong }
+import java.lang.{Long => JLong}
 import java.nio.ByteBuffer
-import scala.collection.immutable
-import scala.concurrent.Future
-import scala.util._
+
 import akka.actor._
 import akka.pattern.pipe
 import akka.persistence._
@@ -12,8 +10,12 @@ import akka.persistence.cassandra._
 import akka.persistence.serialization.Snapshot
 import akka.serialization.SerializationExtension
 import com.datastax.driver.core._
-
+import com.datastax.driver.core.policies.{ExponentialReconnectionPolicy, Policies, TokenAwarePolicy}
 import org.apache.cassandra.utils.ByteBufferUtil
+
+import scala.collection.immutable
+import scala.concurrent.Future
+import scala.util._
 
 /**
  * Optimized and fully async version of [[akka.persistence.snapshot.SnapshotStore]].
@@ -25,7 +27,7 @@ trait CassandraSnapshotStoreEndpoint extends Actor {
   val extension = Persistence(context.system)
   val publish = extension.settings.internal.publishPluginCommands
 
-  final def receive = {
+  def receive = {
     case LoadSnapshot(processorId, criteria, toSequenceNr) =>
       val p = sender
       loadAsync(processorId, criteria.limit(toSequenceNr)) map {
@@ -65,27 +67,67 @@ class CassandraSnapshotStore extends CassandraSnapshotStoreEndpoint with Cassand
   val serialization = SerializationExtension(context.system)
   val logger = log
 
-  import context.dispatcher
   import config._
+  import context.dispatcher
 
-  val cluster = clusterBuilder.build()
-  val session = cluster.connect()
-  
-  createKeyspace(session)
-  createTable(session, createTable)
-  
-  val preparedWriteSnapshot = session.prepare(writeSnapshot).setConsistencyLevel(writeConsistency)
-  val preparedDeleteSnapshot = session.prepare(deleteSnapshot).setConsistencyLevel(writeConsistency)
-  val preparedSelectSnapshot = session.prepare(selectSnapshot).setConsistencyLevel(readConsistency)
-
-  val preparedSelectSnapshotMetadataForLoad =
-    session.prepare(selectSnapshotMetadata(limit = Some(maxMetadataResultSize))).setConsistencyLevel(readConsistency)
-
-  val preparedSelectSnapshotMetadataForDelete =
-    session.prepare(selectSnapshotMetadata(limit = None)).setConsistencyLevel(readConsistency)
-    
-  val preparedDeleteSnapshotBatch : StringBuilder = new StringBuilder
+val preparedDeleteSnapshotBatch : StringBuilder = new StringBuilder
    preparedDeleteSnapshotBatch.append("BEGIN BATCH")
+
+  //load all those as lazy to no get PostRestartException in case C* does down, and at restart fails to init
+  var cluster: Cluster = null
+  var session: Session = null
+
+  var preparedWriteSnapshot: PreparedStatement = null
+  var preparedDeleteSnapshot: PreparedStatement = null
+  var preparedSelectSnapshot: PreparedStatement = null
+  var preparedSelectSnapshotMetadataForLoad: PreparedStatement = null
+  var preparedSelectSnapshotMetadataForDelete: PreparedStatement = null
+  var initialized = false
+
+  override def preStart(): Unit = {
+    super.preStart
+    // eager initialization, but not from constructor
+    self ! "init"
+  }
+
+  override def receive = ({
+    case "init" => initializeCassandra()
+  }: Receive) orElse super.receive
+
+  def initializeCassandra(): Unit = {
+    if (initialized) {
+      log.warning("##### Desired to initialize a Cassandra snapshot that is already initialized ... - skip")
+      return
+    }
+    log.info("##### Cassandra snapshot desire to lazy initialize ...")
+
+    try {
+      //try reconnect at max 1 minute, with token aware and round robin
+      cluster = clusterBuilder
+        .withReconnectionPolicy(new ExponentialReconnectionPolicy(1000, 1 * 60 * 1000))
+        .withLoadBalancingPolicy(new TokenAwarePolicy(Policies.defaultLoadBalancingPolicy))
+        .build()
+      session = cluster.connect()
+      createKeyspace(session)
+      createTable(session, createTable)
+
+      preparedWriteSnapshot = session.prepare(writeSnapshot).setConsistencyLevel(writeConsistency)
+      preparedDeleteSnapshot = session.prepare(deleteSnapshot).setConsistencyLevel(writeConsistency)
+      preparedSelectSnapshot = session.prepare(selectSnapshot).setConsistencyLevel(readConsistency)
+      preparedSelectSnapshotMetadataForLoad = session.prepare(selectSnapshotMetadata(limit = Some(maxMetadataResultSize))).setConsistencyLevel(readConsistency)
+      preparedSelectSnapshotMetadataForDelete = session.prepare(selectSnapshotMetadata(limit = None)).setConsistencyLevel(readConsistency)
+      
+    } catch {
+      case e: Throwable =>
+        initialized = false
+        log.error(e, "Cassandra snapshot failed initialized ...")
+        //throw this to let default akka system supervision to restart me
+        throw new RuntimeException("Cassandra snapshot failed initialized: " + e.getMessage)
+    }
+
+    initialized = true
+    log.info("##### Cassandra snapshot successfully lazy initialized ...")
+  }
 
   def loadAsync(processorId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = for {
     mds <- Future(metadata(processorId, criteria).take(3).toVector)
@@ -177,7 +219,11 @@ class CassandraSnapshotStore extends CassandraSnapshotStoreEndpoint with Cassand
   }
 
   override def postStop(): Unit = {
-    session.shutdown()
-    cluster.shutdown()
+    if (null != session) {
+      session.shutdown()
+    }
+    if (null != cluster) {
+      cluster.shutdown()
+    }
   }
 }
